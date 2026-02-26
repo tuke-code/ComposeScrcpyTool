@@ -145,6 +145,12 @@ private fun ApplicationScope.TrayView(
     val enableHdc by remember(simpleConfig.value.enableHdc) {
         mutableStateOf(simpleConfig.value.enableHdc)
     }
+    val useInnerHdc by remember(simpleConfig.value.useInnerHdc) {
+        mutableStateOf(simpleConfig.value.useInnerHdc)
+    }
+    val useInnerAdb by remember(simpleConfig.value.useInnerAdb) {
+        mutableStateOf(simpleConfig.value.useInnerAdb)
+    }
     Tray(
         icon = icon,
         state = trayState,
@@ -162,6 +168,9 @@ private fun ApplicationScope.TrayView(
                 state.isMinimized = !state.isMinimized
             })
             Separator()
+            CheckboxItem("自动刷新设备", autoRefresh) {
+                simpleConfigStore.updateSimpleConfig(simpleConfig.value.copy(autoRefresh = !autoRefresh))
+            }
             Menu("设备列表") {
                 if (connectedDevice.value.isEmpty()) {
                     Item("（空）") {}
@@ -175,11 +184,17 @@ private fun ApplicationScope.TrayView(
                     }
                 }
             }
-            CheckboxItem("自动刷新", autoRefresh) {
-                simpleConfigStore.updateSimpleConfig(simpleConfig.value.copy(autoRefresh = !autoRefresh))
+            Separator()
+            CheckboxItem("使用内置abd", useInnerAdb) {
+                simpleConfigStore.updateSimpleConfig(simpleConfig.value.copy(useInnerAdb = !useInnerAdb))
             }
-            CheckboxItem("启用hdc", enableHdc) {
+            CheckboxItem("支持鸿蒙设备", enableHdc) {
                 simpleConfigStore.updateSimpleConfig(simpleConfig.value.copy(enableHdc = !enableHdc))
+            }
+            if (enableHdc) {
+                CheckboxItem("使用内置hdc", useInnerHdc) {
+                    simpleConfigStore.updateSimpleConfig(simpleConfig.value.copy(useInnerHdc = !useInnerHdc))
+                }
             }
             Separator()
             Item("退出", onClick = ::exit)

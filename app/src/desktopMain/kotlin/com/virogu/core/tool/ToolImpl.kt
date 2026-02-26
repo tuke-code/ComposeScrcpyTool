@@ -50,9 +50,9 @@ class ToolImpl : Tools {
 
     override val pingCommand: PingCommand = PingCommand()
 
-    override val adbCommand: AdbCommand = AdbCommand()
+    override val adbCommand: AdbCommand = AdbCommand(configStores)
 
-    override val hdcCommand: HdcCommand = HdcCommand()
+    override val hdcCommand: HdcCommand = HdcCommand(configStores)
 
     override val initTool: InitTool by lazy {
         when (Common.platform) {

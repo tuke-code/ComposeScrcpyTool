@@ -77,7 +77,7 @@ enum class FileOptionDialogType {
 fun RemoteFilePager(
     tools: Tools,
     fileListState: LazyListState,
-    model: RemoteFileViewModel = viewModel(),
+    model: RemoteFileViewModel = viewModel { RemoteFileViewModel() },
 ) {
     val scrollAdapter = rememberScrollbarAdapter(fileListState)
     val selectedDevice by tools.deviceConnect.currentSelectedDevice.collectAsState()

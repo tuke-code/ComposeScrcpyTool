@@ -19,6 +19,7 @@ package com.virogu.core.command
 
 import com.virogu.core.Common
 import com.virogu.core.bean.Platform
+import com.virogu.core.config.ConfigStores
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.io.File
 import java.nio.charset.Charset
@@ -27,9 +28,11 @@ import java.nio.charset.Charset
  * @author Virogu
  * @since 2024-03-27 下午 5:15
  **/
-class HdcCommand : BaseCommand() {
+class HdcCommand(private val configStores: ConfigStores) : BaseCommand() {
     @Volatile
     private var started: Boolean = false
+
+    private val useInner get() = configStores.simpleConfigStore.simpleConfig.value.useInnerHdc
 
     override val workDir: File by lazy {
         Common.workDir.resolve("app").also {
@@ -37,7 +40,12 @@ class HdcCommand : BaseCommand() {
         }
     }
 
-    private val executable by lazy {
+    private val executable
+        get() = if (useInner) innerExe else systemExe
+
+    val systemExe = arrayOf("hdc")
+
+    private val innerExe by lazy {
         when (Common.platform) {
             is Platform.Linux, is Platform.MacOs -> arrayOf("./hdc")
             is Platform.Windows -> arrayOf("cmd.exe", "/c", "hdc")

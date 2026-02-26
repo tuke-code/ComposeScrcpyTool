@@ -33,4 +33,6 @@ data class HistoryDevice(
 data class SimpleConfig(
     val autoRefresh: Boolean = true,
     val enableHdc: Boolean = false,
+    val useInnerAdb: Boolean = true,
+    val useInnerHdc: Boolean = true,
 )
