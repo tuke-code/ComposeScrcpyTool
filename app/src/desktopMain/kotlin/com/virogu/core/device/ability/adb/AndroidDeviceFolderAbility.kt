@@ -167,11 +167,13 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         val lines = it.trim().split("\n")
         val files: List<RemoteFile> = if (lines.isEmpty()) {
             emptyList()
-        } else if (Pattern.compile(".*\\$path.*Permission denied.*").matcher(lines.first()).find()) {
+        } else if (lines.size == 1 && Pattern.compile(".*\\$path.*Permission denied.*").matcher(lines.first()).find()) {
             //println("^(.*)?${parent}(.*)?Permission denied(.*)?$ find")
             throw IllegalStateException(lines.first())
         } else {
-            lines.parseToFiles(parent)
+            lines.filterNot { l ->
+                Pattern.compile(".*\\$path.*Permission denied.*").matcher(l).find()
+            }.parseToFiles(parent)
         }
         files
     }
