@@ -185,7 +185,7 @@ private fun ApplicationScope.TrayView(
                 }
             }
             Separator()
-            CheckboxItem("使用内置abd", useInnerAdb) {
+            CheckboxItem("使用内置adb", useInnerAdb) {
                 simpleConfigStore.updateSimpleConfig(simpleConfig.value.copy(useInnerAdb = !useInnerAdb))
             }
             CheckboxItem("支持鸿蒙设备", enableHdc) {
