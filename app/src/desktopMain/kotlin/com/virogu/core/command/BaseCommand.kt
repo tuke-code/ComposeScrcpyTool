@@ -70,11 +70,6 @@ open class BaseCommand {
                     return@withContext Result.failure(IllegalArgumentException("command is empty!"))
                 }
                 val cmdString = command.joinToString(" ")
-                if (showLog) {
-                    logger.info { "\n[${cmdString}] wait" }
-                } else if (consoleLog) {
-                    logger.debug { "\n[${cmdString}] wait" }
-                }
                 // 将执行结果重定向到一个临时文件，执行结束后读取这个文件的内容，再把文件删除
                 // 因为执行hdc命令时，inputStream read时总是会卡死
                 // 这样操作虽然仍无法避免hdc inputStream卡死，但是卡死时不会影响正常运行，只是这个临时文件被hdc进程锁死无法删除
@@ -85,6 +80,11 @@ open class BaseCommand {
                     command.map {
                         String(it.toByteArray(Charsets.UTF_8), inputCharset)
                     }.toTypedArray()
+                }
+                if (showLog) {
+                    logger.info { "\n${commandEncoded.contentToString()} wait" }
+                } else if (consoleLog) {
+                    logger.debug { "\n${commandEncoded.contentToString()} wait" }
                 }
                 process = ProcessBuilder(*commandEncoded).fixEnv(env, workDir, redirect).start()
                 if (timeout <= 0) {

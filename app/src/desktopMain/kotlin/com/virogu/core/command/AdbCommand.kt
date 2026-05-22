@@ -63,6 +63,7 @@ class AdbCommand(private val configStores: ConfigStores) : BaseCommand() {
         env: Map<String, String>? = null,
         showLog: Boolean = false,
         consoleLog: Boolean = Common.isDebug,
+        redirectFile: File? = null,
         timeout: Long = 5L,
         charset: Charset = Charsets.UTF_8
     ): Result<String> {
@@ -77,6 +78,7 @@ class AdbCommand(private val configStores: ConfigStores) : BaseCommand() {
             *executable,
             *command,
             env = env,
+            redirectFile = redirectFile,
             showLog = showLog,
             consoleLog = consoleLog,
             timeout = timeout,

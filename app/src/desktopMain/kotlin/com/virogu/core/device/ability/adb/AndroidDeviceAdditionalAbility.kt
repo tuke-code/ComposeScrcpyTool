@@ -74,8 +74,9 @@ class AndroidDeviceAdditionalAbility(private val device: Device) : DeviceAbility
     private suspend fun doSnapshot(): String {
         val saveDir = getScreenSavePath()
         val fileName = "IMG_${localFormatTime}.png"
-        val screenFile = File(saveDir, fileName).absolutePath
-        val screen = cmd.adb(*target, "exec-out", "screencap", "-p", ">", screenFile).getOrNull() ?: "error"
+        val screenFile = File(saveDir, fileName)
+        val screen = cmd.adb(*target, "exec-out", "screencap", "-p", redirectFile = screenFile, showLog = true)
+            .getOrNull() ?: "error"
         if (screen.isNotEmpty()) {
             return "截图失败: $screen"
         }
