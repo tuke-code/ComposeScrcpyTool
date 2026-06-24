@@ -18,6 +18,7 @@
 package com.virogu.core.command
 
 import com.virogu.core.Common
+import com.virogu.core.config.ConfigStores
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -33,7 +34,7 @@ import kotlin.uuid.Uuid
  * @author Virogu
  * @since 2024-03-27 下午 5:00
  **/
-open class BaseCommand {
+open class BaseCommand(val configStores: ConfigStores) {
 
     protected open val workDir: File? = null
     private val processMap = HashMap<Long, Process>()

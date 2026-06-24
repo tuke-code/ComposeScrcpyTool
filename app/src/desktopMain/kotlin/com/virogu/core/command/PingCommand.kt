@@ -19,13 +19,14 @@ package com.virogu.core.command
 
 import com.virogu.core.Common
 import com.virogu.core.bean.Platform
+import com.virogu.core.config.ConfigStores
 import java.nio.charset.Charset
 
 /**
  * @author Virogu
  * @since 2024-03-27 下午 6:23
  **/
-class PingCommand : BaseCommand() {
+class PingCommand(configStores: ConfigStores) : BaseCommand(configStores) {
     private val charset: Charset by lazy {
         when (Common.platform) {
             is Platform.Windows -> Charset.forName("GBK")

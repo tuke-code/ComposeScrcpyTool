@@ -28,7 +28,7 @@ import java.nio.charset.Charset
  * @author Virogu
  * @since 2024-03-27 下午 5:19
  **/
-class AdbCommand(private val configStores: ConfigStores) : BaseCommand() {
+class AdbCommand(configStores: ConfigStores) : BaseCommand(configStores) {
 
     @Volatile
     private var started: Boolean = false
@@ -37,6 +37,27 @@ class AdbCommand(private val configStores: ConfigStores) : BaseCommand() {
 
     companion object {
         private val logger = KotlinLogging.logger { }
+
+        fun getSystemAdbPath(workDir: File): String {
+            val exeName = if (Common.platform is Platform.Windows) "adb.exe" else "adb"
+            val envPath = System.getenv("PATH") ?: ""
+            val paths = envPath.split(File.pathSeparator)
+            for (path in paths) {
+                val cleanPath = path.trim().removeSurrounding("\"")
+                if (cleanPath.isEmpty()) continue
+                val file = File(cleanPath, exeName)
+                if (file.exists() && file.isFile && file.canExecute() && file.absolutePath != File(
+                        workDir,
+                        exeName
+                    ).absolutePath
+                ) {
+                    return file.absolutePath
+                }
+            }
+            // If not found in PATH, returning this will cause an explicit failure,
+            // preventing the OS from silently falling back to the adb.exe in the current working directory.
+            return "adb_not_found_in_system_path"
+        }
     }
 
     override val workDir: File by lazy {
@@ -48,7 +69,7 @@ class AdbCommand(private val configStores: ConfigStores) : BaseCommand() {
     private val executable
         get() = if (useInner) innerExe else systemExe
 
-    val systemExe = arrayOf("adb")
+    val systemExe by lazy { arrayOf(getSystemAdbPath(workDir)) }
 
     private val innerExe by lazy {
         when (Common.platform) {

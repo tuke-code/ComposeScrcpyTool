@@ -28,7 +28,7 @@ import java.nio.charset.Charset
  * @author Virogu
  * @since 2024-03-27 下午 5:15
  **/
-class HdcCommand(private val configStores: ConfigStores) : BaseCommand() {
+class HdcCommand(configStores: ConfigStores) : BaseCommand(configStores) {
     @Volatile
     private var started: Boolean = false
 

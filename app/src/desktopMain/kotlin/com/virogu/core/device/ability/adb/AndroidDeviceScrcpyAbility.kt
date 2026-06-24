@@ -20,6 +20,7 @@ package com.virogu.core.device.ability.adb
 import com.virogu.core.Common
 import com.virogu.core.bean.Platform
 import com.virogu.core.bean.ScrcpyConfig
+import com.virogu.core.command.AdbCommand
 import com.virogu.core.command.BaseCommand
 import com.virogu.core.device.Device
 import com.virogu.core.device.ability.DeviceAbilityScrcpy
@@ -44,9 +45,9 @@ class AndroidDeviceScrcpyAbility(
 
     private val target = arrayOf("-s", device.serial)
 
-    private val workDir: File by lazy {
-        Common.workDir.resolve("app")
-    }
+    private val useInnerAdb get() = cmd.configStores.simpleConfigStore.simpleConfig.value.useInnerAdb
+
+    private val workDir: File by lazy { Common.workDir.resolve("app") }
 
     private val executable by lazy {
         when (Common.platform) {
@@ -56,17 +57,22 @@ class AndroidDeviceScrcpyAbility(
         }
     }
 
-    private val environment: Map<String, String> by lazy {
-        when (Common.platform) {
-            is Platform.Linux, is Platform.MacOs -> mapOf(
-                "SCRCPY_ICON_PATH" to File(workDir, "logo.svg").absolutePath,
-                "SCRCPY_SERVER_PATH" to File(workDir, "scrcpy-server").absolutePath,
-                "ADB_PATH" to workDir.absolutePath,
-            )
+    private val baseEnvironment = mapOf(
+        "SCRCPY_ICON_PATH" to File(workDir, "logo.svg").absolutePath,
+        "SCRCPY_SERVER_PATH" to File(workDir, "scrcpy-server").absolutePath,
+    )
 
-            else -> emptyMap()
+    private val systemAdbPath by lazy { AdbCommand.getSystemAdbPath(workDir) }
+
+    private val environment: Map<String, String>
+        get() = baseEnvironment.toMutableMap().also { map ->
+            if (useInnerAdb) {
+                val exeName = if (Common.platform is Platform.Windows) "adb.exe" else "adb"
+                map["ADB"] = File(workDir, exeName).absolutePath
+            } else {
+                map["ADB"] = systemAdbPath
+            }
         }
-    }
 
     override suspend fun connect(
         scope: CoroutineScope,

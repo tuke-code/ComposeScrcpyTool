@@ -46,9 +46,9 @@ class ToolImpl : Tools {
 
     override val sshTool: SSHTool = SSHToolImpl()
 
-    override val baseCommand: BaseCommand = BaseCommand()
+    override val baseCommand: BaseCommand = BaseCommand(configStores)
 
-    override val pingCommand: PingCommand = PingCommand()
+    override val pingCommand: PingCommand = PingCommand(configStores)
 
     override val adbCommand: AdbCommand = AdbCommand(configStores)
 
