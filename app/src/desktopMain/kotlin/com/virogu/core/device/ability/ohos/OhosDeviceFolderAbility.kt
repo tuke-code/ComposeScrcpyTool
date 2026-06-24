@@ -58,7 +58,7 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         parent: RemoteFile, path: String
     ): Result<List<RemoteFile>> = cmd.hdc(
         *target, "shell",
-        "ls", "-h", "-g", "-L", parent.path.ifEmpty { "/" }, consoleLog = DEBUG
+        "ls -h -g -L '${path.ifEmpty { "/" }}'", consoleLog = DEBUG
     ).map {
         val lines = it.trim().split("\n")
         val files: List<RemoteFile> = if (lines.isEmpty()) {
@@ -107,7 +107,7 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     }
 
     override suspend fun getFileVerifyInfo(path: String): FileVerifyInfo {
-        val md5 = cmd.hdc(*target, "shell", "md5sum", path, consoleLog = DEBUG).map {
+        val md5 = cmd.hdc(*target, "shell", "md5sum '${path}'", consoleLog = DEBUG).map {
             it.replace("\\s+".toRegex(), " ").split(" ").let { l ->
                 if (l.size == 2) {
                     l[0]
@@ -116,7 +116,7 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
                 }
             }
         }
-        val sha1 = cmd.hdc(*target, "shell", "sha1sum", path, consoleLog = DEBUG).map {
+        val sha1 = cmd.hdc(*target, "shell", "sha1sum '${path}'", consoleLog = DEBUG).map {
             it.replace("\\s+".toRegex(), " ").split(" ").let { l ->
                 if (l.size == 2) {
                     l[0]
@@ -162,7 +162,7 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     }
 
     override suspend fun chmod(path: String, permission: String): String = buildString {
-        cmd.hdc(*target, "shell", "chmod", permission, path, consoleLog = true).onSuccess {
+        cmd.hdc(*target, "shell", "chmod $permission '${path}'", consoleLog = true).onSuccess {
             if (it.isNotBlank()) {
                 appendLine(it)
             } else {
