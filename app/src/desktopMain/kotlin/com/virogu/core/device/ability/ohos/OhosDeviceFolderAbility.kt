@@ -54,10 +54,21 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         }
     }
 
+    private suspend fun executeShellWithFallback(commandStr: String, consoleLog: Boolean = false): Result<String> {
+        // 使用单行命令 `su 0 sh -c "cmd" 2>/dev/null || cmd`，确保在一次网络通信中完成提权尝试。
+        // 如果 su 成功执行并返回 0，短路运算结束，非常快。
+        // 如果 su 不存在或由于无权限等原因导致失败，标准错误被抑制，马上无缝执行正常的 cmd，并输出正常的报错信息。
+        val escapedCmd = commandStr.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\$", "\\\$")
+            .replace("`", "\\`")
+        val combinedCmd = "su 0 sh -c \"$escapedCmd\" 2>/dev/null || $commandStr"
+        return cmd.hdc(*target, "shell", combinedCmd, consoleLog = consoleLog)
+    }
+
     override suspend fun refreshPath(
         parent: RemoteFile, path: String
-    ): Result<List<RemoteFile>> = cmd.hdc(
-        *target, "shell",
+    ): Result<List<RemoteFile>> = executeShellWithFallback(
         "ls -h -g -L '${path.ifEmpty { "/" }}'", consoleLog = DEBUG
     ).map {
         val lines = it.trim().split("\n")
@@ -72,8 +83,8 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         files
     }
 
-    override suspend fun createDir(dir: String, newFile: String): Result<String> = cmd.hdc(
-        *target, "shell", "mkdir -p '${dir}/${newFile}'",
+    override suspend fun createDir(dir: String, newFile: String): Result<String> = executeShellWithFallback(
+        "mkdir -p '${dir}/${newFile}'",
         consoleLog = true
     ).mapCatching {
         if (it.isNotEmpty()) {
@@ -84,8 +95,8 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     }
 
 
-    override suspend fun createFile(dir: String, newFile: String): Result<String> = cmd.hdc(
-        *target, "shell", "touch '${dir}/${newFile}'",
+    override suspend fun createFile(dir: String, newFile: String): Result<String> = executeShellWithFallback(
+        "touch '${dir}/${newFile}'",
         consoleLog = true
     ).mapCatching {
         if (it.isNotEmpty()) {
@@ -95,8 +106,8 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         }
     }
 
-    override suspend fun deleteFile(path: String): Result<String> = cmd.hdc(
-        *target, "shell", "rm -r '${path}'",
+    override suspend fun deleteFile(path: String): Result<String> = executeShellWithFallback(
+        "rm -r '${path}'",
         consoleLog = true
     ).mapCatching {
         if (it.isNotEmpty()) {
@@ -107,7 +118,7 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     }
 
     override suspend fun getFileVerifyInfo(path: String): FileVerifyInfo {
-        val md5 = cmd.hdc(*target, "shell", "md5sum '${path}'", consoleLog = DEBUG).map {
+        val md5 = executeShellWithFallback("md5sum '${path}'", consoleLog = DEBUG).map {
             it.replace("\\s+".toRegex(), " ").split(" ").let { l ->
                 if (l.size == 2) {
                     l[0]
@@ -116,7 +127,7 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
                 }
             }
         }
-        val sha1 = cmd.hdc(*target, "shell", "sha1sum '${path}'", consoleLog = DEBUG).map {
+        val sha1 = executeShellWithFallback("sha1sum '${path}'", consoleLog = DEBUG).map {
             it.replace("\\s+".toRegex(), " ").split(" ").let { l ->
                 if (l.size == 2) {
                     l[0]
@@ -162,7 +173,7 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     }
 
     override suspend fun chmod(path: String, permission: String): String = buildString {
-        cmd.hdc(*target, "shell", "chmod $permission '${path}'", consoleLog = true).onSuccess {
+        executeShellWithFallback("chmod $permission '${path}'", consoleLog = true).onSuccess {
             if (it.isNotBlank()) {
                 appendLine(it)
             } else {
@@ -173,7 +184,7 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         }
     }
 
-    private fun List<String>.parseToFiles(parent: RemoteFile): List<RemoteFile> {
+    private fun List<String>.parseToFilesOld(parent: RemoteFile): List<RemoteFile> {
         if (this.isEmpty()) {
             return emptyList()
         }
@@ -216,6 +227,75 @@ class OhosDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
                 }
                 RemoteFile(
                     name, parent, "${parent.path}/${name}",
+                    type, size, modificationTime, permissions,
+                    level = parent.level + 1
+                )
+            }
+            return files.sortedBy {
+                it.type.sortIndex
+            }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            return emptyList()
+        }
+    }
+
+    private fun List<String>.parseToFiles(parent: RemoteFile): List<RemoteFile> {
+        if (this.isEmpty()) {
+            return emptyList()
+        }
+        try {
+            val files = this.mapNotNull { line ->
+                val trimLine = line.trim()
+                if (trimLine.isEmpty()) return@mapNotNull null
+
+                val tokens = trimLine.split("\\s+".toRegex())
+                if (tokens.size < 6) return@mapNotNull null
+
+                val permissions = tokens[0]
+                if (permissions.startsWith("l", ignoreCase = true)) {
+                    return@mapNotNull null
+                }
+
+                var dateStartIndex = -1
+                for (i in 3 until tokens.size - 1) {
+                    val token = tokens[i]
+                    if (token.matches(Regex("\\d{4}[-/]\\d{2}[-/]\\d{2}")) ||
+                        token.matches(Regex("[a-zA-Z]{3}")) ||
+                        token.matches(Regex("\\d{1,2}月"))
+                    ) {
+                        dateStartIndex = i
+                        break
+                    }
+                }
+
+                if (dateStartIndex == -1) {
+                    return@mapNotNull listOf(line).parseToFilesOld(parent).firstOrNull()
+                }
+
+                val sizeStr = tokens[dateStartIndex - 1]
+                val size = if (sizeStr.firstOrNull()?.isDigit() == true) sizeStr.plus("B") else "0B"
+
+                val isThreePartDate = tokens[dateStartIndex].length < 8
+                val nameStartIndex = if (isThreePartDate) dateStartIndex + 3 else dateStartIndex + 2
+
+                if (nameStartIndex > tokens.size) {
+                    return@mapNotNull listOf(line).parseToFilesOld(parent).firstOrNull()
+                }
+
+                val modificationTime = tokens.subList(dateStartIndex, nameStartIndex).joinToString(" ")
+                val name = tokens.subList(nameStartIndex, tokens.size).joinToString(" ")
+
+                if (name.isEmpty()) return@mapNotNull null
+
+                val type = when {
+                    permissions.startsWith("-") -> FileType.FILE
+                    permissions.startsWith("d", true) -> FileType.DIR
+                    else -> FileType.OTHER
+                }
+
+                RemoteFile(
+                    name, parent, "${parent.path}/$name",
                     type, size, modificationTime, permissions,
                     level = parent.level + 1
                 )

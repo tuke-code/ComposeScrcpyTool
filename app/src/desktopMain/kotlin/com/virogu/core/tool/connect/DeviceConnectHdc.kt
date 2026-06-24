@@ -24,6 +24,9 @@ import com.virogu.core.device.DeviceEntityOhos
 import com.virogu.core.device.DevicePlatform
 import com.virogu.core.tool.ssh.SSHTool
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import org.apache.sshd.client.session.ClientSession
 import org.kodein.di.DI
@@ -84,47 +87,62 @@ abstract class DeviceConnectHdc(configStores: ConfigStores) : DeviceConnectAdb(c
         val list2 = try {
             val process = cmd.hdc("list", "targets", "-v", timeout = 2, consoleLog = showLog).getOrThrow()
             val result = process.split("\n")
-            result.mapNotNull { line ->
-                //192.168.5.128:10178   TCP     Offline                 hdc
-                //192.168.5.128:5555    TCP     Offline     localhost   hdc
-                //192.168.5.131:5555    TCP     Connected   localhost   hdc
-                //192.168.5.255:5555    TCP     Offline                 hdc
-                //COM1                  UART    Ready                   hdc
-                val matcher = Pattern.compile("^(\\S+)\\s+(\\S+)\\s+(\\S+)(.*)$").matcher(line.trim())
-                if (!matcher.find()) {
-                    return@mapNotNull null
-                } else {
+            coroutineScope {
+                result.mapNotNull { line ->
+                    //192.168.5.128:10178   TCP     Offline                 hdc
+                    //192.168.5.128:5555    TCP     Offline     localhost   hdc
+                    //192.168.5.131:5555    TCP     Connected   localhost   hdc
+                    //192.168.5.255:5555    TCP     Offline                 hdc
+                    //COM1                  UART    Ready                   hdc
+                    val matcher = Pattern.compile("^(\\S+)\\s+(\\S+)\\s+(\\S+)(.*)$").matcher(line.trim())
+                    if (!matcher.find()) {
+                        return@mapNotNull null
+                    }
                     val serial = matcher.group(1) ?: return@mapNotNull null
-                    //val type = matcher.group(2) ?: return@mapNotNull null
                     val status = matcher.group(3) ?: return@mapNotNull null
                     val isOnline = status.equals("Connected", ignoreCase = true)
                     if (!isOnline) {
                         return@mapNotNull null
                     }
-                    val apiVersion = hdcGetProp(serial, OHOS_API_VERSION).takeIf {
-                        it.toIntOrNull() != null
-                    } ?: ""
-                    //val releaseName = hdcGetProp(serial, OHOS_FULL_NAME)
-                    //val product = hdcGetProp(serial, OHOS_PRODUCT_NAME)
-                    val model = hdcGetProp(serial, OHOS_MODEL_NAME)
-                    DeviceEntityOhos(
-                        serial = serial,
-                        status = status,
-                        product = "",
-                        model = model,
-                        apiVersion = apiVersion,
-                        version = "",
-                        device = "",
-                        desc = model,
-                        isOnline = isOnline,
-                    )
+                    async {
+                        var apiVersion = ""
+                        var model = ""
+                        val propCmd =
+                            "param get $OHOS_API_VERSION; echo '---VIROGU_DELIMITER---'; param get $OHOS_MODEL_NAME"
+                        val propsStr =
+                            cmd.hdc("-t", serial, "shell", propCmd, timeout = 1, consoleLog = showLog).getOrNull()
+                                .orEmpty()
+                        val props = propsStr.split("---VIROGU_DELIMITER---")
+
+                        apiVersion = props.getOrNull(0)?.trim() ?: ""
+                        if (apiVersion.contains("fail", ignoreCase = true) || apiVersion.toIntOrNull() == null) {
+                            apiVersion = ""
+                        }
+
+                        model = props.getOrNull(1)?.trim() ?: ""
+                        if (model.contains("fail", ignoreCase = true)) {
+                            model = ""
+                        }
+
+                        DeviceEntityOhos(
+                            serial = serial,
+                            status = status,
+                            product = "",
+                            model = model,
+                            apiVersion = apiVersion,
+                            version = "",
+                            device = "",
+                            desc = model,
+                            isOnline = isOnline,
+                        )
+                    }
+                }.awaitAll().sortedByDescending {
+                    it.isOnline
                 }
-            }.sortedByDescending {
-                it.isOnline
             }
         } catch (e: Throwable) {
             //e.printStackTrace()
-            emptyList()
+            emptyList<Device>()
         }
         return list1 + list2
     }

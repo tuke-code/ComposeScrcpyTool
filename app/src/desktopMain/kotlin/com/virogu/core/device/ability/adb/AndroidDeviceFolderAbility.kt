@@ -21,7 +21,7 @@ import com.virogu.core.bean.FileType
 import com.virogu.core.bean.FileVerifyInfo
 import com.virogu.core.bean.RemoteFile
 import com.virogu.core.command.AdbCommand
-import com.virogu.core.device.Device
+import com.virogu.core.device.DeviceEntityAndroid
 import com.virogu.core.device.ability.DeviceAbilityFolder
 import org.kodein.di.DI
 import org.kodein.di.conf.global
@@ -33,7 +33,7 @@ import java.util.regex.Pattern
  * @author Virogu
  * @since 2024-03-27 下午 8:46
  **/
-class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
+class AndroidDeviceFolderAbility(device: DeviceEntityAndroid) : DeviceAbilityFolder {
     companion object {
         private val cmd: AdbCommand by DI.global.instance<AdbCommand>()
     }
@@ -59,8 +59,20 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         }
     }
 
-    override suspend fun createDir(dir: String, newFile: String): Result<String> = cmd.adb(
-        *target, "shell", "mkdir '${dir}/${newFile}'",
+    private suspend fun execute(commandStr: String, consoleLog: Boolean = false): Result<String> {
+        // 使用单行命令 `su 0 sh -c "cmd" 2>/dev/null || cmd`，确保在一次网络通信中完成提权尝试。
+        // 如果 su 成功执行并返回 0，短路运算结束，非常快。
+        // 如果 su 不存在或由于无权限等原因导致失败，标准错误被抑制，马上无缝执行正常的 cmd，并输出正常的报错信息。
+        val escapedCmd = commandStr.replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("$", "\\$")
+            .replace("`", "\\`")
+        val combinedCmd = "su 0 sh -c \"$escapedCmd\" 2>/dev/null || $commandStr"
+        return cmd.adb(*target, "shell", combinedCmd, consoleLog = consoleLog)
+    }
+
+    override suspend fun createDir(dir: String, newFile: String): Result<String> = execute(
+        "mkdir '${dir}/${newFile}'",
         consoleLog = true
     ).mapCatching {
         if (it.isNotEmpty()) {
@@ -71,8 +83,8 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     }
 
 
-    override suspend fun createFile(dir: String, newFile: String): Result<String> = cmd.adb(
-        *target, "shell", "touch '${dir}/${newFile}'",
+    override suspend fun createFile(dir: String, newFile: String): Result<String> = execute(
+        "touch '${dir}/${newFile}'",
         consoleLog = true
     ).mapCatching {
         if (it.isNotEmpty()) {
@@ -82,8 +94,8 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         }
     }
 
-    override suspend fun deleteFile(path: String): Result<String> = cmd.adb(
-        *target, "shell", "rm -r '${path}'",
+    override suspend fun deleteFile(path: String): Result<String> = execute(
+        "rm -r '${path}'",
         consoleLog = true
     ).mapCatching {
         if (it.isNotEmpty()) {
@@ -94,7 +106,7 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     }
 
     override suspend fun getFileVerifyInfo(path: String): FileVerifyInfo {
-        val md5 = cmd.adb(*target, "shell", "md5sum '${path}'").map {
+        val md5 = execute("md5sum '${path}'").map {
             it.replace("\\s+".toRegex(), " ").split(" ").let { l ->
                 if (l.size == 2) {
                     l[0]
@@ -103,7 +115,7 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
                 }
             }
         }
-        val sha1 = cmd.adb(*target, "shell", "sha1sum '${path}'").map {
+        val sha1 = execute("sha1sum '${path}'").map {
             it.replace("\\s+".toRegex(), " ").split(" ").let { l ->
                 if (l.size == 2) {
                     l[0]
@@ -150,7 +162,7 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     }
 
     override suspend fun chmod(path: String, permission: String): String = buildString {
-        cmd.adb(*target, "shell", "chmod $permission '${path}'", consoleLog = true).onSuccess {
+        execute("chmod $permission '${path}'", consoleLog = true).onSuccess {
             if (it.isNotBlank()) {
                 appendLine(it)
             } else {
@@ -161,22 +173,23 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
         }
     }
 
-    override suspend fun refreshPath(parent: RemoteFile, path: String): Result<List<RemoteFile>> = cmd.adb(
-        *target, "shell", "ls -h -g -L -A '${path.ifEmpty { "/" }}'"
-    ).map {
-        val lines = it.trim().split("\n")
-        val files: List<RemoteFile> = if (lines.isEmpty()) {
-            emptyList()
-        } else if (lines.size == 1 && Pattern.compile(".*\\$path.*Permission denied.*").matcher(lines.first()).find()) {
-            //println("^(.*)?${parent}(.*)?Permission denied(.*)?$ find")
-            throw IllegalStateException(lines.first())
-        } else {
-            lines.filterNot { l ->
-                Pattern.compile(".*\\$path.*Permission denied.*").matcher(l).find()
-            }.parseToFiles(parent)
+    override suspend fun refreshPath(parent: RemoteFile, path: String): Result<List<RemoteFile>> =
+        execute("ls -h -g -L -A '${path.ifEmpty { "/" }}'").map {
+            val lines = it.trim().split("\n")
+            val files: List<RemoteFile> = if (lines.isEmpty()) {
+                emptyList()
+            } else if (lines.size == 1 && Pattern.compile(".*\\$path.*Permission denied.*").matcher(lines.first())
+                    .find()
+            ) {
+                //println("^(.*)?${parent}(.*)?Permission denied(.*)?$ find")
+                throw IllegalStateException(lines.first())
+            } else {
+                lines.filterNot { l ->
+                    Pattern.compile(".*\\$path.*Permission denied.*").matcher(l).find()
+                }.parseToFiles(parent)
+            }
+            files
         }
-        files
-    }
 
     //> adb shell ls -h -g -lL /sdcard
     //total 91K
@@ -191,7 +204,7 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
     //drwxrwx--- 18 everybody 8.0K 2025-11-27 18:33 Pictures
     //drwxrwx---  3 everybody 3.3K 2025-11-10 21:02 com.milink.service
     //drwxrwx---  3 everybody 3.3K 2025-10-25 03:01 com.miui.voiceassist
-    private fun List<String>.parseToFiles(parent: RemoteFile): List<RemoteFile> {
+    private fun List<String>.parseToFilesOld(parent: RemoteFile): List<RemoteFile> {
         if (this.isEmpty()) {
             return emptyList()
         }
@@ -234,6 +247,75 @@ class AndroidDeviceFolderAbility(device: Device) : DeviceAbilityFolder {
                 }
                 RemoteFile(
                     name, parent, "${parent.path}/${name}",
+                    type, size, modificationTime, permissions,
+                    level = parent.level + 1
+                )
+            }
+            return files.sortedBy {
+                it.type.sortIndex
+            }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            return emptyList()
+        }
+    }
+
+    private fun List<String>.parseToFiles(parent: RemoteFile): List<RemoteFile> {
+        if (this.isEmpty()) {
+            return emptyList()
+        }
+        try {
+            val files = this.mapNotNull { line ->
+                val trimLine = line.trim()
+                if (trimLine.isEmpty()) return@mapNotNull null
+
+                val tokens = trimLine.split("\\s+".toRegex())
+                if (tokens.size < 6) return@mapNotNull null
+
+                val permissions = tokens[0]
+                if (permissions.startsWith("l", ignoreCase = true)) {
+                    return@mapNotNull null
+                }
+
+                var dateStartIndex = -1
+                for (i in 3 until tokens.size - 1) {
+                    val token = tokens[i]
+                    if (token.matches(Regex("\\d{4}[-/]\\d{2}[-/]\\d{2}")) ||
+                        token.matches(Regex("[a-zA-Z]{3}")) ||
+                        token.matches(Regex("\\d{1,2}月"))
+                    ) {
+                        dateStartIndex = i
+                        break
+                    }
+                }
+
+                if (dateStartIndex == -1) {
+                    return@mapNotNull listOf(line).parseToFilesOld(parent).firstOrNull()
+                }
+
+                val sizeStr = tokens[dateStartIndex - 1]
+                val size = if (sizeStr.firstOrNull()?.isDigit() == true) sizeStr.plus("B") else "0B"
+
+                val isThreePartDate = tokens[dateStartIndex].length < 8
+                val nameStartIndex = if (isThreePartDate) dateStartIndex + 3 else dateStartIndex + 2
+
+                if (nameStartIndex > tokens.size) {
+                    return@mapNotNull listOf(line).parseToFilesOld(parent).firstOrNull()
+                }
+
+                val modificationTime = tokens.subList(dateStartIndex, nameStartIndex).joinToString(" ")
+                val name = tokens.subList(nameStartIndex, tokens.size).joinToString(" ")
+
+                if (name.isEmpty()) return@mapNotNull null
+
+                val type = when {
+                    permissions.startsWith("-") -> FileType.FILE
+                    permissions.startsWith("d", true) -> FileType.DIR
+                    else -> FileType.OTHER
+                }
+
+                RemoteFile(
+                    name, parent, "${parent.path}/$name",
                     type, size, modificationTime, permissions,
                     level = parent.level + 1
                 )

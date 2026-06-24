@@ -24,6 +24,9 @@ import com.virogu.core.device.DeviceEntityAndroid
 import com.virogu.core.device.DevicePlatform
 import com.virogu.core.tool.ssh.SSHTool
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import org.apache.sshd.client.session.ClientSession
 import org.kodein.di.DI
 import org.kodein.di.conf.global
@@ -86,17 +89,18 @@ abstract class DeviceConnectAdb(configStores: ConfigStores) : DeviceConnectBase(
     override suspend fun refreshDevice(showLog: Boolean): List<Device> = try {
         val process = cmd.adb("devices", "-l", showLog = false, consoleLog = showLog).getOrThrow()
         val result = process.split("\n")
-        result.mapNotNull { line ->
-            //127.0.0.1:58526        device product:windows_x86_64 model:Subsystem_for_Android_TM_ device:windows_x86_64 transport_id:5
-            //emulator-5556 device product:google_x86_64 model:Android_x86_64 device:generic_x86_64
-            //emulator-5554 device product:google_x86 model:Android_x86 device:generic_x86  transport_id:5
-            //0a388e93      device usb:1-1 product:razor model:Nexus_7 device:flo
-            val matcher = Pattern.compile(
-                "^(\\S+)\\s+(\\S+)\\s+(?:usb:\\S+\\s+)?product:(\\S+)\\s+model:(\\S+)\\s+device:(\\S+)(?:\\s+transport_id:)?(\\S+)?(.*)$"
-            ).matcher(line.trim())
-            if (!matcher.find()) {
-                return@mapNotNull null
-            } else {
+        coroutineScope {
+            result.mapNotNull { line ->
+                //127.0.0.1:58526        device product:windows_x86_64 model:Subsystem_for_Android_TM_ device:windows_x86_64 transport_id:5
+                //emulator-5556 device product:google_x86_64 model:Android_x86_64 device:generic_x86_64
+                //emulator-5554 device product:google_x86 model:Android_x86 device:generic_x86  transport_id:5
+                //0a388e93      device usb:1-1 product:razor model:Nexus_7 device:flo
+                val matcher = Pattern.compile(
+                    "^(\\S+)\\s+(\\S+)\\s+(?:usb:\\S+\\s+)?product:(\\S+)\\s+model:(\\S+)\\s+device:(\\S+)(?:\\s+transport_id:)?(\\S+)?(.*)$"
+                ).matcher(line.trim())
+                if (!matcher.find()) {
+                    return@mapNotNull null
+                }
                 val serial = matcher.group(1) ?: return@mapNotNull null
                 val status = matcher.group(2) ?: return@mapNotNull null
                 val product = matcher.group(3) ?: return@mapNotNull null
@@ -104,34 +108,37 @@ abstract class DeviceConnectAdb(configStores: ConfigStores) : DeviceConnectBase(
                 val device = matcher.group(5) ?: return@mapNotNull null
                 val isOnline = status == "device"
 
-                val apiVersion = isOnline.takeIf {
-                    it
-                }?.let {
-                    adbGetProp(serial, ANDROID_API_VERSION)
-                } ?: ""
+                async {
+                    var apiVersion = ""
+                    var androidVersion = ""
+                    if (isOnline) {
+                        val propCmd =
+                            "getprop $ANDROID_API_VERSION; echo '---VIROGU_DELIMITER---'; getprop $ANDROID_RELEASE_VERSION"
+                        val propsStr =
+                            cmd.adb("-s", serial, "shell", propCmd, consoleLog = showLog, showLog = false).getOrNull()
+                                .orEmpty()
+                        val props = propsStr.split("---VIROGU_DELIMITER---")
+                        apiVersion = props.getOrNull(0)?.trim() ?: ""
+                        androidVersion = props.getOrNull(1)?.trim() ?: ""
+                    }
 
-                val androidVersion = isOnline.takeIf {
-                    it
-                }?.let {
-                    adbGetProp(serial, ANDROID_RELEASE_VERSION)
-                } ?: ""
-
-                DeviceEntityAndroid(
-                    serial = serial,
-                    status = status,
-                    product = product,
-                    model = model,
-                    version = androidVersion,
-                    apiVersion = apiVersion,
-                    device = device,
-                    desc = model,
-                    isOnline = isOnline
-                )
+                    DeviceEntityAndroid(
+                        serial = serial,
+                        status = status,
+                        product = product,
+                        model = model,
+                        version = androidVersion,
+                        apiVersion = apiVersion,
+                        device = device,
+                        desc = model,
+                        isOnline = isOnline
+                    )
+                }
+            }.awaitAll().sortedByDescending {
+                it.isOnline
             }
-        }.sortedByDescending {
-            it.isOnline
         }
-    } catch (e: Throwable) {
+    } catch (_: Throwable) {
         //e.printStackTrace()
         emptyList()
     }

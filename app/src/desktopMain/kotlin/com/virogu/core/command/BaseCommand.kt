@@ -25,8 +25,9 @@ import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
-import kotlin.random.Random
 import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /**
  * @author Virogu
@@ -44,9 +45,10 @@ open class BaseCommand {
         Common.projectTmpDir
     }
 
+    @OptIn(ExperimentalUuidApi::class)
     private val defaultRedirectFile: File
         get() {
-            val random = Random.nextLong(100000, 999999)
+            val random = Uuid.random().toString()
             return File(tmpDir, "${System.currentTimeMillis()}_${random}")
         }
 
